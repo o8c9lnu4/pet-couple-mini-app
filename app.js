@@ -45,6 +45,9 @@ async function initApp() {
         // Показываем ID пользователя
         document.getElementById('my-id').textContent = currentUser.id;
         
+        // Загружаем данные пользователя с сервера
+        await loadUserData();
+        
         // Загружаем данные питомца
         await loadPetData();
         
@@ -57,25 +60,67 @@ async function initApp() {
     }
 }
 
+// Загрузка данных пользователя
+async function loadUserData() {
+    try {
+        const response = await fetch(`http://localhost:8000/api/user?user_id=${currentUser.id}`);
+        if (response.ok) {
+            const userData = await response.json();
+            currentUser.hasCouple = userData.has_couple;
+            currentUser.coupleId = userData.couple_id;
+            
+            if (userData.has_couple) {
+                await loadCoupleData();
+            }
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки данных пользователя:', error);
+        // Используем демо-данные если сервер недоступен
+        currentUser.hasCouple = false;
+    }
+}
+
+// Загрузка данных пары
+async function loadCoupleData() {
+    try {
+        const response = await fetch(`http://localhost:8000/api/couple?user_id=${currentUser.id}`);
+        if (response.ok) {
+            currentCouple = await response.json();
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки данных пары:', error);
+    }
+}
+
 // Загрузка данных питомца
 async function loadPetData() {
     try {
-        // В реальном приложении здесь был бы запрос к серверу
-        // Пока используем локальные данные для демонстрации
+        // Если у пользователя есть пара, загружаем питомца с сервера
+        if (currentUser.hasCouple && currentUser.coupleId) {
+            const response = await fetch(`http://localhost:8000/api/pet?couple_id=${currentUser.coupleId}`);
+            if (response.ok) {
+                const petData = await response.json();
+                currentPet = {
+                    id: petData.id,
+                    name: petData.name,
+                    type: petData.type,
+                    hunger: petData.hunger,
+                    happiness: petData.happiness,
+                    energy: petData.energy,
+                    level: petData.level,
+                    experience: petData.experience,
+                    lastUpdated: petData.last_updated
+                };
+                return;
+            }
+        }
         
-        // Проверяем, есть ли сохраненные данные
+        // Если сервер недоступен или нет пары, используем демо-данные
         const savedPet = localStorage.getItem('pet_data');
-        const savedCouple = localStorage.getItem('couple_data');
-        
         if (savedPet) {
             currentPet = JSON.parse(savedPet);
         } else {
-            // Создаем демо-питомца
             currentPet = createDemoPet();
-        }
-        
-        if (savedCouple) {
-            currentCouple = JSON.parse(savedCouple);
         }
         
     } catch (error) {
@@ -217,23 +262,35 @@ async function createCouple() {
     }
     
     try {
-        // В реальном приложении здесь был бы запрос к серверу
-        currentCouple = {
-            id: Date.now(),
-            user1_id: currentUser.id,
-            user2_id: parseInt(partnerId),
-            created_at: new Date().toISOString()
-        };
+        // Отправляем запрос на сервер
+        const response = await fetch('http://localhost:8000/api/couple/create', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user1_id: currentUser.id,
+                user2_id: parseInt(partnerId),
+                user1_name: currentUser.first_name || 'Пользователь 1',
+                user2_name: 'Партнер'
+            })
+        });
         
-        // Сохраняем в localStorage
-        localStorage.setItem('couple_data', JSON.stringify(currentCouple));
+        const result = await response.json();
         
-        showSuccess('Пара создана! Теперь можете создать питомца.');
-        showScreen('main-menu');
+        if (result.success) {
+            currentUser.hasCouple = true;
+            currentUser.coupleId = result.couple_id;
+            
+            showSuccess('Пара создана! Теперь можете создать питомца.');
+            showScreen('main-menu');
+        } else {
+            showError(result.error || 'Ошибка создания пары');
+        }
         
     } catch (error) {
         console.error('Ошибка создания пары:', error);
-        showError('Ошибка создания пары');
+        showError('Ошибка подключения к серверу. Попробуйте позже.');
     }
 }
 
