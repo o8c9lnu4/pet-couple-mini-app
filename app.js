@@ -33,6 +33,9 @@ document.addEventListener('DOMContentLoaded', function() {
     initApp();
 });
 
+// Инициализация скрипта приветствия
+const welcomeScript = new WelcomeScript();
+
 // Инициализация приложения
 async function initApp() {
     try {
@@ -54,6 +57,9 @@ async function initApp() {
         // Обновляем интерфейс
         updatePetDisplay();
         
+        // Показываем приветственное сообщение
+        showWelcomeMessage();
+        
     } catch (error) {
         console.error('Ошибка инициализации:', error);
         showError('Ошибка загрузки данных');
@@ -63,7 +69,9 @@ async function initApp() {
 // Загрузка данных пользователя
 async function loadUserData() {
     try {
-        const response = await fetch(`http://localhost:8000/api/user?user_id=${currentUser.id}`);
+        // Используем относительный URL для работы на GitHub Pages
+        const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:8000' : 'https://your-api-domain.com';
+        const response = await fetch(`${apiUrl}/api/user?user_id=${currentUser.id}`);
         if (response.ok) {
             const userData = await response.json();
             currentUser.hasCouple = userData.has_couple;
@@ -76,14 +84,25 @@ async function loadUserData() {
     } catch (error) {
         console.error('Ошибка загрузки данных пользователя:', error);
         // Используем демо-данные если сервер недоступен
-        currentUser.hasCouple = false;
+        console.log('API недоступен, используем демо-данные');
+        
+        // Проверяем, есть ли сохраненная пара в localStorage
+        const savedCouple = localStorage.getItem('couple_data');
+        if (savedCouple) {
+            currentCouple = JSON.parse(savedCouple);
+            currentUser.hasCouple = true;
+            currentUser.coupleId = currentCouple.id;
+        } else {
+            currentUser.hasCouple = false;
+        }
     }
 }
 
 // Загрузка данных пары
 async function loadCoupleData() {
     try {
-        const response = await fetch(`http://localhost:8000/api/couple?user_id=${currentUser.id}`);
+        const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:8000' : 'https://your-api-domain.com';
+        const response = await fetch(`${apiUrl}/api/couple?user_id=${currentUser.id}`);
         if (response.ok) {
             currentCouple = await response.json();
         }
@@ -97,7 +116,8 @@ async function loadPetData() {
     try {
         // Если у пользователя есть пара, загружаем питомца с сервера
         if (currentUser.hasCouple && currentUser.coupleId) {
-            const response = await fetch(`http://localhost:8000/api/pet?couple_id=${currentUser.coupleId}`);
+            const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:8000' : 'https://your-api-domain.com';
+            const response = await fetch(`${apiUrl}/api/pet?couple_id=${currentUser.coupleId}`);
             if (response.ok) {
                 const petData = await response.json();
                 currentPet = {
@@ -262,8 +282,11 @@ async function createCouple() {
     }
     
     try {
-        // Отправляем запрос на сервер
-        const response = await fetch('http://localhost:8000/api/couple/create', {
+        // Проверяем, можем ли подключиться к API
+        const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:8000' : 'https://your-api-domain.com';
+        
+        // Пробуем подключиться к API
+        const response = await fetch(`${apiUrl}/api/couple/create`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -290,7 +313,26 @@ async function createCouple() {
         
     } catch (error) {
         console.error('Ошибка создания пары:', error);
-        showError('Ошибка подключения к серверу. Попробуйте позже.');
+        
+        // Если API недоступен, используем демо-режим
+        console.log('API недоступен, используем демо-режим');
+        
+        // Создаем демо-пару
+        currentCouple = {
+            id: Date.now(),
+            user1_id: currentUser.id,
+            user2_id: parseInt(partnerId),
+            created_at: new Date().toISOString()
+        };
+        
+        currentUser.hasCouple = true;
+        currentUser.coupleId = currentCouple.id;
+        
+        // Сохраняем в localStorage
+        localStorage.setItem('couple_data', JSON.stringify(currentCouple));
+        
+        showSuccess('Пара создана! (Демо-режим) Теперь можете создать питомца.');
+        showScreen('main-menu');
     }
 }
 
@@ -442,4 +484,75 @@ tg.onEvent('themeChanged', function() {
 window.showScreen = showScreen;
 window.copyMyId = copyMyId;
 window.createCouple = createCouple;
-window.performAction = performAction; 
+window.performAction = performAction;
+
+// Показ приветственного сообщения
+function showWelcomeMessage() {
+    try {
+        let message;
+        
+        // Проверяем, новый ли это пользователь
+        const isNewUser = !localStorage.getItem('user_visited');
+        localStorage.setItem('user_visited', 'true');
+        
+        if (isNewUser) {
+            message = welcomeScript.getNewUserWelcome(currentUser);
+        } else {
+            // Проверяем ежедневное сообщение
+            const dailyMessage = welcomeScript.getDailyMessage(currentUser, currentPet);
+            if (dailyMessage) {
+                message = dailyMessage;
+            } else {
+                message = welcomeScript.getReturnWelcome(currentUser, currentPet);
+            }
+        }
+        
+        // Показываем сообщение в красивом модальном окне
+        showWelcomeModal(message);
+        
+    } catch (error) {
+        console.error('Ошибка показа приветствия:', error);
+    }
+}
+
+// Показ модального окна с приветствием
+function showWelcomeModal(message) {
+    // Создаем модальное окно
+    const modal = document.createElement('div');
+    modal.className = 'welcome-modal';
+    modal.innerHTML = `
+        <div class="welcome-content">
+            <div class="welcome-header">
+                <h2>🐾 Добро пожаловать!</h2>
+                <button class="close-btn" onclick="closeWelcomeModal()">×</button>
+            </div>
+            <div class="welcome-body">
+                <p>${message.replace(/\n/g, '<br>')}</p>
+            </div>
+            <div class="welcome-footer">
+                <button class="welcome-btn" onclick="closeWelcomeModal()">Понятно! 🎉</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Анимация появления
+    setTimeout(() => {
+        modal.classList.add('show');
+    }, 100);
+}
+
+// Закрытие модального окна
+function closeWelcomeModal() {
+    const modal = document.querySelector('.welcome-modal');
+    if (modal) {
+        modal.classList.remove('show');
+        setTimeout(() => {
+            modal.remove();
+        }, 300);
+    }
+}
+
+// Экспорт функций приветствия
+window.closeWelcomeModal = closeWelcomeModal; 
